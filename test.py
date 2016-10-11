@@ -1,3 +1,4 @@
 a = 1
 print(a)
-testeste
+b = 'testeste'
+print(b)
