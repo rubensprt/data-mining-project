@@ -27,6 +27,20 @@ def LoadData():
 	print 'Data loaded.'
 	return movies, ratings
 
+# Load data test
+def LoadDataTest():
+	print 'Loading data...'
+	# movies
+	dir = "/Users/apple/Desktop/test"
+	#mnames = ['movieid', 'title', 'genres']
+	movies = pd.read_csv(dir + '/movies.csv', engine='python')
+
+	# ratings
+	#rnames = ['userid', 'movieid', 'rating', 'timestamp']
+	ratings = pd.read_csv(dir + '/ratings.csv', engine='python')
+	ratings = ratings.drop('timestamp', axis=1)  # drop column of "timestamp"
+	print 'Data loaded.'
+	return movies, ratings
 
 # Preprocess the datasets
 def Preprocess(movies, ratings):
@@ -54,8 +68,9 @@ def TransformData(data):
 	for i in range(len(data)):
 		item_user.setdefault(data.ix[i]['movieid'], {})
 		item_user[data.ix[i]['movieid']][data.ix[i]['userid']] = float(data.ix[i]['rating'])
-		if i % 500 == 0:
-			print('\tFinshed %s %' % round((i*100.0/len(data)), 2))
+		if i % 500000 == 0:
+			print('\tFinshed %s%%' % round((i*100.0/len(data)), 2))
+	print('\tFinshed 100%')
 	print 'Item-user dict has done.'
 	return item_user
 
@@ -104,18 +119,22 @@ def ItemSimilarity(train):
 	for item in train:
 		n += 1
 		if n % 500 == 0:
-			print "\tFinished %s %" % (round((n*100.0/len(train)), 2))
+			print("\tFinished %s%%" % (round((n*100.0/len(train)), 2)))
 		scores = Matches(train, item)
 		itemsim[item] = scores
+	print('\tFinshed 100%')
 	print 'Item-sim has done.'
 	return itemsim
 
 
 if __name__ == "__main__":
-	movies, ratings = LoadData()
+	#movies, ratings = LoadData()
+	movies, ratings = LoadDataTest()
 	data = Preprocess(movies, ratings)
 	item_user = TransformData(data)
 	itemsim = ItemSimilarity(item_user)
-	with open('/Users/apple/Desktop/Graduate/course/datamining/test.txt') as f:
+	for item in itemsim:
+		print item
+	with open('test.txt', 'w') as f:
 		for item in itemsim:
 			f.write(item)
