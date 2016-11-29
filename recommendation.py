@@ -75,6 +75,16 @@ def TransformData(data):
 	return item_user
 
 
+# Transform datasets from item_user to user_item
+def Transform(train):
+	user_item = dict()
+	for item in train:
+		for user in train[item]:
+			user_item.setdefault(user, {})
+			user_item[user][item] = train[item][user]
+	return user_item
+
+
 # ============================== Algorithm ==============================
 # Pearson coefficient
 def SimPearson(prefs, p1, p2):
@@ -127,14 +137,29 @@ def ItemSimilarity(train):
 	return itemsim
 
 
+# Recommend
+def Recommend(itemsim, train, user, n=10):
+	userRatings = train[user]
+	rank = dict()
+	# Iterate the movies that a certain user has rated
+	for (item, rating) in userRatings.items():
+		# find the most xth similar movies in datasets
+		for i in itemsim[item][:300]:
+			item2 = i[1]
+			similarity = i[0]
+			if item2 in userRatings:
+				continue
+			rank.setdefault(item2, 0)
+			rank[item2] += similarity * rating
+	rankings = [(round(rank[item], 2), item) for item in rank]
+	rankings.sort()
+	rankings.reverse()
+	return rankings[:n]
+
+
 if __name__ == "__main__":
 	#movies, ratings = LoadData()
 	movies, ratings = LoadDataTest()
 	data = Preprocess(movies, ratings)
 	item_user = TransformData(data)
 	itemsim = ItemSimilarity(item_user)
-	for item in itemsim:
-		print item
-	with open('test.txt', 'w') as f:
-		for item in itemsim:
-			f.write(item)
