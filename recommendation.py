@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 from pandas import Series, DataFrame
 import math
+import random
 
 
 # Load data
@@ -55,7 +56,8 @@ def Preprocess(movies, ratings):
 	movies_dummies = movies.join(dummies.add_prefix('Genres_'))  # merged with movies
 
 	data_merged = pd.merge(movies_dummies, ratings, on='movieid')  # merge two tables by 'movieid'
-	data = data_merged.drop_duplicates()  # drop duplications
+	data = data_merged.drop_duplicates()
+	data = data.dropna()  # drop duplications
 	print 'Preprocessing completed.'
 	return data
 
@@ -85,81 +87,205 @@ def Transform(train):
 	return user_item
 
 
-# ============================== Algorithm ==============================
-# Pearson coefficient
-def SimPearson(prefs, p1, p2):
-	si = {}
-	for item in prefs[p1]:
-		if item in prefs[p2]:
-			si[item] = 1
-	n = len(si)
-	if n == 0:
-		return -1
+def ItemSim(train):
+	# Comatrix
+	comatrix = dict()
+	# the frequency of movies
+	movie_num = dict()
+	# iterate
+	for movies in train.values():
+		# calculate the comatrix
+		for i in movies:
+			# calculate the frequency
+			movie_num.setdefault(i, 0)
+			movie_num[i] += 1
+			for j in movies:
+				if j == i:
+					continue
+				comatrix.setdefault(i, {})
+				comatrix[i].setdefault(j, 0)
+				comatrix[i][j] += 1
 
-	sum1 = sum([prefs[p1][it] for it in si])
-	sum2 = sum([prefs[p2][it] for it in si])
+	# calculate the similarity
+	Sim = dict()
+	for i, related_movies in comatrix.items():
+		for j in related_movies:
+			Sim.setdefault(i, {})
+			Sim[i][j] = (comatrix[i][j] * 1.0)/math.sqrt(movie_num[i] * movie_num[j])
 
-	sum1Sq = sum([pow(prefs[p1][it], 2) for it in si])
-	sum2Sq = sum([pow(prefs[p2][it], 2) for it in si])
-
-	pSum = sum([prefs[p1][it]*prefs[p2][it] for it in si])
-
-	num = pSum - (sum1*sum2/n)
-	den = math.sqrt((sum1Sq-pow(sum1, 2)/n)*(sum2Sq-pow(sum2, 2)/n))
-	if den == 0:
-		return 0
-	r = num/den
-	return r
-
-
-# Matches
-def Matches(prefs, person, similarity=SimPearson):
-	scores = [(similarity(prefs, person, other), other) for other in prefs if other != person]
-	scores.sort()  # sort
-	scores.reverse()  # decreasing sort
-	return scores
-
-
-# Item similarity
-def ItemSimilarity(train):
-	print 'Calculating item similarities...'
-	itemsim = {}
-	n = 0  # counter
-	# iterate datasets
-	for item in train:
-		n += 1
-		if n % 500 == 0:
-			print("\tFinished %s%%" % (round((n*100.0/len(train)), 2)))
-		scores = Matches(train, item)
-		itemsim[item] = scores
-	print('\tFinshed 100%')
-	print 'Item-sim has done.'
-	return itemsim
+	# sort
+	Sim_result = dict()
+	for k, v in Sim.items():
+		sim = sorted(v.iteritems(), key=lambda x: x[1], reverse=True)
+		Sim_result[k] = sim
+	return Sim_result
 
 
-# Recommend
-def Recommend(itemsim, train, user, n=10):
+# Recommend(IBFC)
+def Recommend_I(itemsim, train, user, k=100, n=10):
 	userRatings = train[user]
 	rank = dict()
+	totalsim = dict()
 	# Iterate the movies that a certain user has rated
 	for (item, rating) in userRatings.items():
 		# find the most xth similar movies in datasets
-		for i in itemsim[item][:300]:
-			item2 = i[1]
-			similarity = i[0]
+		for i in itemsim[item][:k]:
+			item2 = i[0]
+			similarity = i[1]
 			if item2 in userRatings:
+				continue
+			if similarity == 0 or similarity == -1:
 				continue
 			rank.setdefault(item2, 0)
 			rank[item2] += similarity * rating
-	rankings = [(round(rank[item], 2), item) for item in rank]
+			totalsim.setdefault(item2, 0)
+			totalsim[item2] += similarity
+	#rankings = [(round(v/totalsim[k],2), k) for k, v in rank.items()]
+	rankings = [(round(v,2),k) for k, v in rank.items()]
+	rankings.sort()
+	rankings.reverse()
+	return rankings[:n]
+
+# Recommend(UBFC)
+def Recommend_U(usersim, train, user, k=10, n=10):
+	rank = dict()
+	totalsim = dict()
+	for (user2, sim) in usersim[user][:k]:
+		if user2 == user:
+			continue
+		if sim == 0 or sim == -1:
+			continue
+		for item in train[user2]:
+			if item not in train[user]:
+				rank.setdefault(item, 0)
+				rank[item] += sim * train[user2][item]
+				totalsim.setdefault(item, 0)
+				totalsim[item] += sim
+	rankings = [(round(v/totalsim[k],2), k) for k, v in rank.items()]
+	#rankings = [(round(v,2),k) for k, v in rank.items()]
 	rankings.sort()
 	rankings.reverse()
 	return rankings[:n]
 
 
+
+# ============================== Algorithm Evaluation ==============================
+# Split the data
+def SplitData(data, M, k, seed):
+	test = dict()
+	train = dict()
+	random.seed(seed)
+	for i in range(len(data)):
+		if random.randint(0, M) == k:
+			test.setdefault(data.ix[i]['userid'], {})
+			test[data.ix[i]['userid']][data.ix[i]['movieid']] = float(data.ix[i]['rating'])
+		else:
+			train.setdefault(data.ix[i]['userid'], {})
+			train[data.ix[i]['userid']][data.ix[i]['movieid']] = float(data.ix[i]['rating'])
+	return train, test
+
+# Split the data
+def SplitData2(data, M, k, seed):
+	test = dict()
+	train = dict()
+	random.seed(seed)
+	for i in range(len(data)):
+		if random.randint(0, M) == k:
+			test.setdefault(data.ix[i]['movieid'], {})
+			test[data.ix[i]['movieid']][data.ix[i]['userid']] = float(data.ix[i]['rating'])
+		else:
+			train.setdefault(data.ix[i]['movieid'], {})
+			train[data.ix[i]['movieid']][data.ix[i]['userid']] = float(data.ix[i]['rating'])
+	return train, test
+
+
+# Recall
+def Recall(recommend_result, test, user):
+	# hit represents the number of predicted one in test
+	hit = 0
+	for item in recommend_result:
+		if item[1] in test[user]:
+			hit += 1
+
+	all = len(test[user])
+	return hit/(all*1.0)
+
+
+# Precise
+def Precise(recommend_result, test, user):
+	hit = 0
+	for item in recommend_result:
+		if item[1] in test[user]:
+			hit += 1
+
+	all = len(recommend_result)
+	return hit/(all*1.0)
+
+
+# Coverage
+def Coverage(recommend_result, movies_num):
+	recommend_items = []
+	for user in recommend_result:
+		for item in recommend_result[user]:
+			recommend_items.append(item[1])
+
+	items = set(recommend_items)
+
+	return len(items)/(movies_num * 1.0)
+
+
+# =============================Get the result==========================
+def GetAllRecommendations(Sim_result, train, k=10):
+	recommend_result = dict()
+	c = 0
+	for user in train:
+		recommend_result[user] = Recommend_I(Sim_result, train, user, k)
+		if c%1000 == 0: print "%d / %d" % (c, len(train))
+		c += 1
+
+	return recommend_result
+
+def TestRecommend(recommend_result, test, movies_num=10325):
+	recall = []
+	precise = []
+	for user in recommend_result:
+		if user in test:
+			recall.append(Recall(recommend_result[user], test, user))
+			precise.append(Precise(recommend_result[user], test, user))
+		else:
+			continue
+
+	# get the average
+	recall_r = sum(recall)/(len(recall)*1.0)
+	precise_r = sum(precise)/(len(precise)*1.0)
+
+	# get the coverage
+	coverage_r = Coverage(recommend_result, movies_num)
+
+	return round(recall_r, 4), round(precise_r, 4), round(coverage_r, 4)
+
+
 if __name__ == "__main__":
-	#movies, ratings = LoadData()
+	# movies, ratings = LoadData()
 	movies, ratings = LoadDataTest()
 	data = Preprocess(movies, ratings)
-	item_user = TransformData(data)
-	itemsim = ItemSimilarity(item_user)
+	#item_user = TransformData(data)
+	#user_item = Transform(item_user)
+	#itemsim = ItemSim(user_item)
+	#print Recommend_I(itemsim, user_item, 1)
+
+	# Test IBCF
+	#train, test = SplitData(data, 8, 4, 123)
+	#itemsim = ItemSim(train)
+	#for k in [5, 10, 20, 40, 80, 160, 320]:
+	#	recommend_result = GetAllRecommendations(itemsim, train, k)
+	#	r, p, c = TestRecommend(recommend_result, test)
+	#	print('k=%s: recall=%s, precise=%s, coverage=%s' % (k, r, p, c))
+
+	#Test UBCF
+	train, test = SplitData2(data, 8, 7, 123)
+	usersim = ItemSim(train)
+	for k in [5, 10, 20, 40, 80, 160, 320]:
+		recommend_result = GetAllRecommendations(usersim, train, k)
+		r, p, c = TestRecommend(recommend_result, test)
+		print('k=%s: recall=%s, precise=%s, coverage=%s' % (k, r, p, c))
