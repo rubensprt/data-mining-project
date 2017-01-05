@@ -56,8 +56,8 @@ def Preprocess(movies, ratings):
 	movies_dummies = movies.join(dummies.add_prefix('Genres_'))  # merged with movies
 
 	data_merged = pd.merge(movies_dummies, ratings, on='movieid')  # merge two tables by 'movieid'
-	data = data_merged.drop_duplicates()
-	data = data.dropna()  # drop duplications
+	data = data_merged.drop_duplicates()  # drop duplications
+	data = data.dropna()  # drop na
 	print 'Preprocessing completed.'
 	return data
 
@@ -119,7 +119,6 @@ def ItemSim(train):
 		sim = sorted(v.iteritems(), key=lambda x: x[1], reverse=True)
 		Sim_result[k] = sim
 	return Sim_result
-
 
 # Recommend(IBFC)
 def Recommend_I(itemsim, train, user, k=100, n=10):
